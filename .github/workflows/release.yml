@@ -8,7 +8,7 @@ permissions:
   contents: write
 
 jobs:
-  release:
+  macos:
     runs-on: macos-latest
     steps:
       - uses: actions/checkout@v4
@@ -24,6 +24,48 @@ jobs:
           for t in aarch64-apple-darwin x86_64-apple-darwin; do
             tar -czf "dist/fkill-${VERSION}-${t}.tar.gz" -C "target/${t}/release" fkill
           done
+          cd dist && shasum -a 256 *.tar.gz > SHA256SUMS
+      - uses: actions/upload-artifact@v4
+        with:
+          name: dist-macos
+          path: dist/*
+
+  linux:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: x86_64-unknown-linux-musl,aarch64-unknown-linux-musl
+      - name: Build
+        run: |
+          # pure-rust static musl builds: no cross toolchain needed
+          cargo build --release --target x86_64-unknown-linux-musl
+          cargo build --release --target aarch64-unknown-linux-musl
+      - name: Package
+        run: |
+          VERSION="${GITHUB_REF_NAME#v}"
+          mkdir -p dist
+          for t in x86_64-unknown-linux-musl aarch64-unknown-linux-musl; do
+            tar -czf "dist/fkill-${VERSION}-${t}.tar.gz" -C "target/${t}/release" fkill
+          done
+          cd dist && shasum -a 256 *.tar.gz > SHA256SUMS
+      - uses: actions/upload-artifact@v4
+        with:
+          name: dist-linux
+          path: dist/*
+
+  publish:
+    needs: [macos, linux]
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/download-artifact@v4
+      - name: Publish release
+        run: |
+          mkdir -p dist
+          mv dist-macos/* dist-linux/* dist/
           cd dist && shasum -a 256 *.tar.gz > SHA256SUMS
       - uses: softprops/action-gh-release@v2
         with:
