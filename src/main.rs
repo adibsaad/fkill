@@ -30,6 +30,9 @@ struct Proc {
     name: String,
     own: String,
     search: String,
+    cpu_time: f64,
+    ps_cpu: f64,
+    live_cpu: f64,
 }
 
 #[derive(Clone)]
@@ -51,6 +54,7 @@ struct App {
     full_rows: Vec<(i32, String)>,
     visible: Vec<Row>,
     protected: HashSet<i32>,
+    last_sample: HashMap<i32, (f64, Instant)>,
     input: String,
     cursor: usize,
     cursor_pid: i32,
@@ -76,6 +80,21 @@ fn proc_name(command: &str) -> String {
     best.rsplit('/').next().unwrap_or(&best).to_string()
 }
 
+fn parse_cpu_time(s: &str) -> f64 {
+    let (days, rest) = match s.split_once('-') {
+        Some((d, r)) => (d.parse::<f64>().unwrap_or(0.0), r),
+        None => (0.0, s),
+    };
+    let secs = rest
+        .split(':')
+        .rev()
+        .filter_map(|p| p.parse::<f64>().ok())
+        .enumerate()
+        .map(|(i, v)| v * 60f64.powi(i as i32))
+        .sum::<f64>();
+    secs + days * 86400.0
+}
+
 fn fetch() -> io::Result<BTreeMap<i32, Proc>> {
     let uid_out = SysCommand::new("id").arg("-u").output()?;
     let uid: u32 = String::from_utf8_lossy(&uid_out.stdout)
@@ -91,13 +110,16 @@ fn fetch() -> io::Result<BTreeMap<i32, Proc>> {
             .to_string()
     };
     let out = SysCommand::new("ps")
-        .args(["-axo", "pid=,ppid=,user=,%cpu=,%mem=,etime=,command="])
+        .args([
+            "-axo",
+            "pid=,ppid=,user=,%cpu=,%mem=,etime=,time=,command=",
+        ])
         .output()?;
     let text = String::from_utf8_lossy(&out.stdout);
     let mut procs = BTreeMap::new();
     for line in text.lines() {
         let toks: Vec<&str> = line.split_whitespace().collect();
-        if toks.len() < 7 {
+        if toks.len() < 8 {
             continue;
         }
         let pid: i32 = match toks[0].parse() {
@@ -109,7 +131,7 @@ fn fetch() -> io::Result<BTreeMap<i32, Proc>> {
             continue;
         }
         let ppid: i32 = toks[1].parse().unwrap_or(0);
-        let command = toks[6..].join(" ").replace('\t', " ");
+        let command = toks[7..].join(" ").replace('\t', " ");
         let name = proc_name(&command);
         procs.insert(
             pid,
@@ -124,6 +146,9 @@ fn fetch() -> io::Result<BTreeMap<i32, Proc>> {
                 name: name.clone(),
                 own: format!("{} {}", pid, name),
                 search: String::new(),
+                cpu_time: parse_cpu_time(toks[6]),
+                ps_cpu: toks[3].parse().unwrap_or(0.0),
+                live_cpu: 0.0,
             },
         );
     }
@@ -231,7 +256,26 @@ fn matches(text: &str, terms: &[String]) -> bool {
 
 impl App {
     fn refresh(&mut self) -> io::Result<()> {
-        let procs = fetch()?;
+        let mut procs = fetch()?;
+        let now = Instant::now();
+        for (pid, p) in procs.iter_mut() {
+            let live = match self.last_sample.get(pid) {
+                Some((t0, at0)) => {
+                    let dt = now.duration_since(*at0).as_secs_f64();
+                    if dt >= 0.2 {
+                        (p.cpu_time - t0).max(0.0) / dt * 100.0
+                    } else {
+                        p.ps_cpu
+                    }
+                }
+                None => p.ps_cpu,
+            };
+            p.live_cpu = live;
+        }
+        self.last_sample = procs
+            .iter()
+            .map(|(pid, p)| (*pid, (p.cpu_time, now)))
+            .collect();
         let children = build_children(&procs);
         let protected = protected_set(&procs);
         let roots: Vec<i32> = procs
@@ -429,17 +473,26 @@ let items: Vec<ListItem> = app
                 } else {
                     Style::default().fg(Color::Yellow)
                 };
-            let marker = if app.selected.contains(&r.pid) {
-                "● "
-            } else {
-                "  "
-            };
-            ListItem::new(Line::from(vec![
-                Span::styled(marker, Style::default().fg(Color::Green)),
-                Span::styled(r.display.clone(), style),
-            ]))
-        })
-        .collect();
+                let cpu_val = app.procs.get(&r.pid).map(|p| p.live_cpu).unwrap_or(0.0);
+                let cpu_style = if cpu_val >= 80.0 {
+                    Style::default().fg(Color::Red).add_modifier(Modifier::BOLD)
+                } else if cpu_val >= 25.0 {
+                    Style::default().fg(Color::Yellow)
+                } else {
+                    Style::default().fg(Color::DarkGray)
+                };
+                let marker = if app.selected.contains(&r.pid) {
+                    "● "
+                } else {
+                    "  "
+                };
+                ListItem::new(Line::from(vec![
+                    Span::styled(marker, Style::default().fg(Color::Green)),
+                    Span::styled(r.display.clone(), style),
+                    Span::styled(format!(" {:.1}%", cpu_val), cpu_style),
+                ]))
+            })
+            .collect();
     let list = List::new(items)
         .highlight_symbol("▌ ")
         .highlight_style(Style::default().add_modifier(Modifier::REVERSED));
@@ -585,6 +638,7 @@ fn main() -> io::Result<()> {
         full_rows: Vec::new(),
         visible: Vec::new(),
         protected: HashSet::new(),
+        last_sample: HashMap::new(),
         input: String::new(),
         cursor: 0,
         cursor_pid: 0,
@@ -607,7 +661,8 @@ fn main() -> io::Result<()> {
             } else {
                 "s"
             };
-            println!("{}\t{}\t{}", r.pid, tag, r.display);
+            let cpu = app.procs.get(&r.pid).map(|p| p.live_cpu).unwrap_or(0.0);
+            println!("{}\t{}\t{}\t{:.1}", r.pid, tag, r.display, cpu);
         }
         eprintln!(
             "{} shown, {} selectable",
