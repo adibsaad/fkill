@@ -55,6 +55,7 @@ struct App {
     visible: Vec<Row>,
     protected: HashSet<i32>,
     last_sample: HashMap<i32, (f64, Instant)>,
+    selection_view: bool,
     input: String,
     cursor: usize,
     cursor_pid: i32,
@@ -322,23 +323,52 @@ impl App {
     fn rebuild_visible(&mut self) {
         let terms = self.terms();
         let mut visible = Vec::new();
-        for (pid, display) in &self.full_rows {
-            let p = match self.procs.get(pid) {
-                Some(p) => p,
-                None => continue,
-            };
-            let vis = terms.is_empty() || matches(&p.search, &terms);
-            if !vis {
-                continue;
+        if self.selection_view && self.selected.is_empty() {
+            self.selection_view = false;
+            self.message = "selection cleared".into();
+        }
+        if self.selection_view {
+            let mut want: HashSet<i32> = self.selected.clone();
+            for pid in &self.selected {
+                let mut cur = *pid;
+                while let Some(p) = self.procs.get(&cur) {
+                    cur = p.ppid;
+                    if !want.insert(cur) {
+                        break;
+                    }
+                }
             }
-            let is_protected = self.protected.contains(pid);
-            let killable = !is_protected && (terms.is_empty() || matches(&p.own, &terms));
-            visible.push(Row {
-                pid: *pid,
-                display: display.clone(),
-                killable,
-                protected: is_protected,
-            });
+            for (pid, display) in &self.full_rows {
+                if !want.contains(pid) || !self.procs.contains_key(pid) {
+                    continue;
+                }
+                let is_protected = self.protected.contains(pid);
+                visible.push(Row {
+                    pid: *pid,
+                    display: display.clone(),
+                    killable: !is_protected,
+                    protected: is_protected,
+                });
+            }
+        } else {
+            for (pid, display) in &self.full_rows {
+                let p = match self.procs.get(pid) {
+                    Some(p) => p,
+                    None => continue,
+                };
+                let vis = terms.is_empty() || matches(&p.search, &terms);
+                if !vis {
+                    continue;
+                }
+                let is_protected = self.protected.contains(pid);
+                let killable = !is_protected && (terms.is_empty() || matches(&p.own, &terms));
+                visible.push(Row {
+                    pid: *pid,
+                    display: display.clone(),
+                    killable,
+                    protected: is_protected,
+                });
+            }
         }
         if let Some(i) = visible.iter().position(|r| r.pid == self.cursor_pid) {
             self.cursor = i;
@@ -372,7 +402,12 @@ impl App {
                 } else {
                     self.selected.insert(row.pid);
                 }
-                self.message.clear();
+                if self.selection_view && !self.selected.is_empty() {
+                    self.message = format!("selection view — {} selected", self.selected.len());
+                } else {
+                    self.message.clear();
+                }
+                self.rebuild_visible();
             }
         }
     }
@@ -397,7 +432,7 @@ impl App {
     fn do_kill(&mut self) {
         let targets = match std::mem::replace(&mut self.mode, Mode::Normal) {
             Mode::Confirm(t) => t,
-            Mode::Normal => return,
+            _ => return,
         };
         let mut killed = Vec::new();
         let mut failed = Vec::new();
@@ -453,11 +488,18 @@ fn draw(f: &mut Frame, app: &mut App, list_state: &mut ListState) {
     ])
     .split(area);
 
-    let input_line = Line::from(vec![
-        Span::styled("search> ", Style::default().fg(Color::Cyan)),
-        Span::raw(app.input.clone()),
-        Span::styled("█", Style::default().fg(Color::Cyan)),
-    ]);
+    let input_line = if app.selection_view {
+        Line::from(Span::styled(
+            "selection view — tab deselects · ctrl+l back to search · esc exit",
+            Style::default().fg(Color::Cyan),
+        ))
+    } else {
+        Line::from(vec![
+            Span::styled("search> ", Style::default().fg(Color::Cyan)),
+            Span::raw(app.input.clone()),
+            Span::styled("█", Style::default().fg(Color::Cyan)),
+        ])
+    };
     f.render_widget(Paragraph::new(input_line), chunks[0]);
 
 let items: Vec<ListItem> = app
@@ -521,12 +563,15 @@ let items: Vec<ListItem> = app
     f.render_widget(preview, chunks[2]);
 
     let mut status = String::new();
+    if app.selection_view {
+        status.push_str("[selection view] ");
+    }
     if !app.message.is_empty() {
         status.push_str(&app.message);
         status.push_str("  ·  ");
     }
     status.push_str(&format!(
-        "{} shown · {} selected  ·  ↑↓ move · tab select · enter kill · ctrl+u clear · ctrl+r refresh · esc quit",
+        "{} shown · {} selected  ·  ↑↓ move · tab select · enter kill · ctrl+l selected · ctrl+u clear · ctrl+r refresh · esc quit",
         app.visible.len(),
         app.selected.len()
     ));
@@ -586,20 +631,40 @@ fn run(mut app: App, mut terminal: Terminal<CrosstermBackend<io::Stdout>>) -> io
                     match &mut app.mode {
                         Mode::Normal => match (key.code, key.modifiers) {
                             (KeyCode::Char('c'), KeyModifiers::CONTROL) => return Ok(()),
-                            (KeyCode::Esc, _) => return Ok(()),
+                            (KeyCode::Esc, _) => {
+                                if app.selection_view {
+                                    app.selection_view = false;
+                                    app.message.clear();
+                                    app.rebuild_visible();
+                                } else {
+                                    return Ok(());
+                                }
+                            }
                             (KeyCode::Char('r'), KeyModifiers::CONTROL) => {
                                 app.refresh()?;
                                 last_refresh = Instant::now();
                             }
                             (KeyCode::Char('u'), KeyModifiers::CONTROL) => {
-                                app.input.clear();
-                                app.rebuild_visible();
+                                if !app.selection_view {
+                                    app.input.clear();
+                                    app.rebuild_visible();
+                                }
                             }
-                            (KeyCode::Char(c), m) if !m.contains(KeyModifiers::CONTROL) => {
+                            (KeyCode::Char('l'), KeyModifiers::CONTROL) => {
+                                if !app.selection_view && app.selected.is_empty() {
+                                    app.message = "nothing selected yet".into();
+                                } else {
+                                    app.selection_view = !app.selection_view;
+                                    app.rebuild_visible();
+                                }
+                            }
+                            (KeyCode::Char(c), m)
+                                if !m.contains(KeyModifiers::CONTROL) && !app.selection_view =>
+                            {
                                 app.input.push(c);
                                 app.rebuild_visible();
                             }
-                            (KeyCode::Backspace, _) => {
+                            (KeyCode::Backspace, _) if !app.selection_view => {
                                 app.input.pop();
                                 app.rebuild_visible();
                             }
@@ -639,6 +704,7 @@ fn main() -> io::Result<()> {
         visible: Vec::new(),
         protected: HashSet::new(),
         last_sample: HashMap::new(),
+        selection_view: false,
         input: String::new(),
         cursor: 0,
         cursor_pid: 0,
