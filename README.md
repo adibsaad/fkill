@@ -10,6 +10,11 @@ spinning. fkill shows the process **tree**, so when you search for a helper you 
 see *who owns it* — and parents are always shown with the matches, styled yellow so
 you know what's a direct hit vs. context.
 
+htop is great for watching, but hard to *navigate* when your goal is just finding and
+killing procs: every refresh re-sorts the list, so the process you were about to
+highlight keeps jumping around under the cursor. fkill's list is stable — tree order,
+never re-sorted — so what you're looking at stays where it is.
+
 ## Features
 
 - **Hierarchical tree** — every process rendered under its real parent with
