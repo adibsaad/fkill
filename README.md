@@ -36,7 +36,7 @@ never re-sorted — so what you're looking at stays where it is.
 
 ## Install
 
-macOS (Homebrew, prebuilt for Apple silicon and Intel):
+macOS and Linux (Homebrew, prebuilt for Apple silicon/Intel and x86_64/aarch64 Linux):
 
 ```sh
 brew install adibsaad/tap/fkill
