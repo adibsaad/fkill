@@ -1,7 +1,9 @@
 # fkill
 
-An interactive TUI process killer for macOS. Browse every process you own as a live
+An interactive TUI process killer for macOS and Linux. Browse every process you own as a live
 hierarchy, filter it instantly, and kill exactly what you meant to kill.
+
+![demo](demo.gif)
 
 ## Why
 
@@ -34,7 +36,7 @@ never re-sorted — so what you're looking at stays where it is.
 
 ## Install
 
-Requires the Rust toolchain ([rustup](https://rustup.rs)).
+Requires the Rust toolchain ([rustup](https://rustup.rs)) — works on macOS and Linux.
 
 ```sh
 cargo install --git https://github.com/adibsaad/fkill
@@ -45,6 +47,14 @@ Or build from a clone:
 ```sh
 git clone https://github.com/adibsaad/fkill && cd fkill
 cargo build --release && cp target/release/fkill ~/.local/bin/
+```
+
+Or run it in a Docker container (Linux):
+
+```sh
+docker build -t fkill .
+docker run -d --name fkill fkill
+docker exec -it fkill fkill
 ```
 
 ## Usage
@@ -69,6 +79,7 @@ struck-through and refused, so you can't nuke the terminal you're sitting in.
 
 ## Notes
 
-- macOS only right now (`ps` flags are BSD-style; Linux needs a flag tweak)
+- Runs on macOS and Linux — both `ps` flavors (BSD and procps) expose the columns
+  fkill needs, so no platform-specific flags
 - Killing uses `SIGKILL` after an explicit confirm; failures (e.g. race-lost pids)
   are reported per-process in the status line
