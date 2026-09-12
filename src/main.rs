@@ -4,6 +4,11 @@ use std::path::Path;
 use std::process::Command as SysCommand;
 use std::time::{Duration, Instant};
 
+use crossterm::{
+    event::{self, Event, KeyCode, KeyEventKind, KeyModifiers},
+    execute,
+    terminal::{disable_raw_mode, enable_raw_mode, EnterAlternateScreen, LeaveAlternateScreen},
+};
 use ratatui::{
     backend::CrosstermBackend,
     layout::{Constraint, Layout, Rect},
@@ -11,11 +16,6 @@ use ratatui::{
     text::{Line, Span},
     widgets::{Block, Borders, Clear, List, ListItem, ListState, Paragraph, Wrap},
     Frame, Terminal,
-};
-use crossterm::{
-    event::{self, Event, KeyCode, KeyEventKind, KeyModifiers},
-    execute,
-    terminal::{disable_raw_mode, enable_raw_mode, EnterAlternateScreen, LeaveAlternateScreen},
 };
 
 #[derive(Clone)]
@@ -111,10 +111,7 @@ fn fetch() -> io::Result<BTreeMap<i32, Proc>> {
             .to_string()
     };
     let out = SysCommand::new("ps")
-        .args([
-            "-axo",
-            "pid=,ppid=,user=,%cpu=,%mem=,etime=,time=,command=",
-        ])
+        .args(["-axo", "pid=,ppid=,user=,%cpu=,%mem=,etime=,time=,command="])
         .output()?;
     let text = String::from_utf8_lossy(&out.stdout);
     let mut procs = BTreeMap::new();
@@ -317,7 +314,10 @@ impl App {
     }
 
     fn terms(&self) -> Vec<String> {
-        self.input.split_whitespace().map(|s| s.to_string()).collect()
+        self.input
+            .split_whitespace()
+            .map(|s| s.to_string())
+            .collect()
     }
 
     fn rebuild_visible(&mut self) {
@@ -376,8 +376,7 @@ impl App {
             self.cursor = visible.iter().position(|r| r.killable).unwrap_or(0);
             self.cursor_pid = visible.get(self.cursor).map(|r| r.pid).unwrap_or(0);
         }
-        self.selected
-            .retain(|p| self.procs.contains_key(p));
+        self.selected.retain(|p| self.procs.contains_key(p));
         self.visible = visible;
     }
 
@@ -437,7 +436,11 @@ impl App {
         let mut killed = Vec::new();
         let mut failed = Vec::new();
         for pid in &targets {
-            match SysCommand::new("kill").arg("-9").arg(pid.to_string()).output() {
+            match SysCommand::new("kill")
+                .arg("-9")
+                .arg(pid.to_string())
+                .output()
+            {
                 Ok(o) if o.status.success() => killed.push(*pid),
                 Ok(o) => failed.push(format!(
                     "{}: {}",
@@ -502,39 +505,39 @@ fn draw(f: &mut Frame, app: &mut App, list_state: &mut ListState) {
     };
     f.render_widget(Paragraph::new(input_line), chunks[0]);
 
-let items: Vec<ListItem> = app
-            .visible
-            .iter()
-            .map(|r| {
-                let style = if r.protected {
-                    Style::default()
-                        .fg(Color::DarkGray)
-                        .add_modifier(Modifier::CROSSED_OUT)
-                } else if r.killable {
-                    Style::default()
-                } else {
-                    Style::default().fg(Color::Yellow)
-                };
-                let cpu_val = app.procs.get(&r.pid).map(|p| p.live_cpu).unwrap_or(0.0);
-                let cpu_style = if cpu_val >= 80.0 {
-                    Style::default().fg(Color::Red).add_modifier(Modifier::BOLD)
-                } else if cpu_val >= 25.0 {
-                    Style::default().fg(Color::Yellow)
-                } else {
-                    Style::default().fg(Color::DarkGray)
-                };
-                let marker = if app.selected.contains(&r.pid) {
-                    "● "
-                } else {
-                    "  "
-                };
-                ListItem::new(Line::from(vec![
-                    Span::styled(marker, Style::default().fg(Color::Green)),
-                    Span::styled(r.display.clone(), style),
-                    Span::styled(format!(" {:.1}%", cpu_val), cpu_style),
-                ]))
-            })
-            .collect();
+    let items: Vec<ListItem> = app
+        .visible
+        .iter()
+        .map(|r| {
+            let style = if r.protected {
+                Style::default()
+                    .fg(Color::DarkGray)
+                    .add_modifier(Modifier::CROSSED_OUT)
+            } else if r.killable {
+                Style::default()
+            } else {
+                Style::default().fg(Color::Yellow)
+            };
+            let cpu_val = app.procs.get(&r.pid).map(|p| p.live_cpu).unwrap_or(0.0);
+            let cpu_style = if cpu_val >= 80.0 {
+                Style::default().fg(Color::Red).add_modifier(Modifier::BOLD)
+            } else if cpu_val >= 25.0 {
+                Style::default().fg(Color::Yellow)
+            } else {
+                Style::default().fg(Color::DarkGray)
+            };
+            let marker = if app.selected.contains(&r.pid) {
+                "● "
+            } else {
+                "  "
+            };
+            ListItem::new(Line::from(vec![
+                Span::styled(marker, Style::default().fg(Color::Green)),
+                Span::styled(r.display.clone(), style),
+                Span::styled(format!(" {:.1}%", cpu_val), cpu_style),
+            ]))
+        })
+        .collect();
     let list = List::new(items)
         .highlight_symbol("▌ ")
         .highlight_style(Style::default().add_modifier(Modifier::REVERSED));
@@ -545,12 +548,30 @@ let items: Vec<ListItem> = app
             let p = &app.procs[&row.pid];
             vec![
                 Line::from(vec![
-                    Span::styled(format!(" pid {} ", p.pid), Style::default().fg(Color::Yellow)),
-                    Span::styled(format!("ppid {} ", p.ppid), Style::default().fg(Color::Yellow)),
-                    Span::styled(format!("user {} ", p.user), Style::default().fg(Color::Yellow)),
-                    Span::styled(format!("%cpu {} ", p.cpu), Style::default().fg(Color::Yellow)),
-                    Span::styled(format!("%mem {} ", p.mem), Style::default().fg(Color::Yellow)),
-                    Span::styled(format!("up {}", p.etime), Style::default().fg(Color::Yellow)),
+                    Span::styled(
+                        format!(" pid {} ", p.pid),
+                        Style::default().fg(Color::Yellow),
+                    ),
+                    Span::styled(
+                        format!("ppid {} ", p.ppid),
+                        Style::default().fg(Color::Yellow),
+                    ),
+                    Span::styled(
+                        format!("user {} ", p.user),
+                        Style::default().fg(Color::Yellow),
+                    ),
+                    Span::styled(
+                        format!("%cpu {} ", p.cpu),
+                        Style::default().fg(Color::Yellow),
+                    ),
+                    Span::styled(
+                        format!("%mem {} ", p.mem),
+                        Style::default().fg(Color::Yellow),
+                    ),
+                    Span::styled(
+                        format!("up {}", p.etime),
+                        Style::default().fg(Color::Yellow),
+                    ),
                 ]),
                 Line::from(p.command.clone()),
             ]
@@ -583,12 +604,10 @@ let items: Vec<ListItem> = app
     if let Mode::Confirm(targets) = &app.mode {
         let rect = centered_rect(60, 40, area);
         f.render_widget(Clear, rect);
-        let block = Block::default()
-            .borders(Borders::ALL)
-            .title(Span::styled(
-                " confirm SIGKILL ",
-                Style::default().fg(Color::Red).add_modifier(Modifier::BOLD),
-            ));
+        let block = Block::default().borders(Borders::ALL).title(Span::styled(
+            " confirm SIGKILL ",
+            Style::default().fg(Color::Red).add_modifier(Modifier::BOLD),
+        ));
         let inner = block.inner(rect);
         f.render_widget(block, rect);
         let list_height = inner.height.saturating_sub(1) as usize;
@@ -607,7 +626,8 @@ let items: Vec<ListItem> = app
                 targets.len() - (list_height.saturating_sub(1))
             )));
         }
-        let list_chunks = Layout::vertical([Constraint::Min(1), Constraint::Length(1)]).split(inner);
+        let list_chunks =
+            Layout::vertical([Constraint::Min(1), Constraint::Length(1)]).split(inner);
         f.render_widget(Paragraph::new(lines), list_chunks[0]);
         f.render_widget(
             Paragraph::new(Span::styled(
@@ -756,4 +776,331 @@ fn main() -> io::Result<()> {
     disable_raw_mode()?;
     execute!(io::stdout(), LeaveAlternateScreen)?;
     res
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn proc(pid: i32, ppid: i32, name: &str) -> Proc {
+        Proc {
+            pid,
+            ppid,
+            user: "root".into(),
+            cpu: "0.0".into(),
+            mem: "0.0".into(),
+            etime: "00:00".into(),
+            command: format!("/usr/bin/{}", name),
+            name: name.into(),
+            own: format!("{} {}", pid, name),
+            search: String::new(),
+            cpu_time: 0.0,
+            ps_cpu: 0.0,
+            live_cpu: 0.0,
+        }
+    }
+
+    fn make_app(procs: Vec<Proc>, protected: &[i32]) -> App {
+        let map: BTreeMap<i32, Proc> = procs.into_iter().map(|p| (p.pid, p)).collect();
+        let children = build_children(&map);
+        let roots: Vec<i32> = map
+            .iter()
+            .filter(|(_, p)| !map.contains_key(&p.ppid))
+            .map(|(pid, _)| *pid)
+            .collect();
+        let mut full_rows = Vec::new();
+        let mut seen = HashSet::new();
+        for r in &roots {
+            walk_tree(*r, 0, "", true, &map, &children, &mut seen, &mut full_rows);
+        }
+        let mut cache = HashMap::new();
+        let mut sseen = HashSet::new();
+        for r in &roots {
+            build_search(*r, &map, &children, &mut cache, &mut sseen);
+        }
+        let mut map = map;
+        for (pid, s) in cache {
+            if let Some(p) = map.get_mut(&pid) {
+                p.search = s;
+            }
+        }
+        App {
+            procs: map,
+            children,
+            full_rows,
+            visible: Vec::new(),
+            protected: protected.iter().copied().collect(),
+            last_sample: HashMap::new(),
+            selection_view: false,
+            input: String::new(),
+            cursor: 0,
+            cursor_pid: 0,
+            selected: HashSet::new(),
+            message: String::new(),
+            mode: Mode::Normal,
+        }
+    }
+
+    // --- proc_name ---
+
+    #[test]
+    fn proc_name_extracts_basename_of_existing_path() {
+        assert_eq!(proc_name("/bin/sh -c echo hi"), "sh");
+        assert_eq!(proc_name("/usr/bin/env python3"), "env");
+    }
+
+    #[test]
+    fn proc_name_falls_back_when_no_prefix_exists() {
+        assert_eq!(proc_name("/no/such/binary -x"), "binary");
+        assert_eq!(proc_name("launchd"), "launchd");
+    }
+
+    // --- parse_cpu_time ---
+
+    #[test]
+    fn parse_cpu_time_handles_all_ps_formats() {
+        assert_eq!(parse_cpu_time("00:05"), 5.0);
+        assert_eq!(parse_cpu_time("0:00"), 0.0);
+        assert_eq!(parse_cpu_time("01:02:03"), 3723.0);
+        assert_eq!(parse_cpu_time("2-03:04:05"), 183845.0);
+        assert_eq!(parse_cpu_time("00:00.20"), 0.2);
+    }
+
+    // --- matches ---
+
+    #[test]
+    fn matches_requires_all_terms() {
+        let terms = |s: &[&str]| s.iter().map(|t| t.to_string()).collect::<Vec<_>>();
+        assert!(matches("319 callservicesd", &terms(&["call"])));
+        assert!(matches("319 callservicesd", &terms(&["call", "319"])));
+        assert!(!matches("319 callservicesd", &terms(&["call", "zzz"])));
+        assert!(matches("anything", &terms(&[])));
+    }
+
+    #[test]
+    fn matches_is_smart_case() {
+        assert!(matches("PYTHON", &["python".to_string()]));
+        assert!(!matches("python", &["Python".to_string()]));
+        assert!(matches("Python", &["Python".to_string()]));
+    }
+
+    // --- build_children ---
+
+    #[test]
+    fn build_children_groups_by_parent_in_pid_order() {
+        let map: BTreeMap<i32, Proc> = vec![
+            proc(1, 0, "init"),
+            proc(3, 1, "c"),
+            proc(2, 1, "b"),
+            proc(4, 2, "d"),
+        ]
+        .into_iter()
+        .map(|p| (p.pid, p))
+        .collect();
+        let children = build_children(&map);
+        assert_eq!(children[&1], vec![2, 3]);
+        assert_eq!(children[&2], vec![4]);
+        assert!(!children.contains_key(&3));
+    }
+
+    // --- protected_set ---
+
+    #[test]
+    fn protected_set_empty_when_self_not_in_procs() {
+        let map: BTreeMap<i32, Proc> = vec![proc(1, 0, "init")]
+            .into_iter()
+            .map(|p| (p.pid, p))
+            .collect();
+        assert!(protected_set(&map).is_empty());
+    }
+
+    // --- build_search ---
+
+    #[test]
+    fn build_search_collects_own_plus_descendants() {
+        let map: BTreeMap<i32, Proc> = vec![proc(1, 0, "init"), proc(2, 1, "py_hog")]
+            .into_iter()
+            .map(|p| (p.pid, p))
+            .collect();
+        let children = build_children(&map);
+        let mut cache = HashMap::new();
+        let mut seen = HashSet::new();
+        let s = build_search(1, &map, &children, &mut cache, &mut seen);
+        assert_eq!(s, "1 init 2 py_hog");
+    }
+
+    #[test]
+    fn build_search_survives_cycles() {
+        let map: BTreeMap<i32, Proc> = vec![proc(1, 2, "a"), proc(2, 1, "b")]
+            .into_iter()
+            .map(|p| (p.pid, p))
+            .collect();
+        let mut children: HashMap<i32, Vec<i32>> = HashMap::new();
+        children.insert(1, vec![2]);
+        children.insert(2, vec![1]);
+        let mut cache = HashMap::new();
+        let mut seen = HashSet::new();
+        let s = build_search(1, &map, &children, &mut cache, &mut seen);
+        assert_eq!(s, "1 a 2 b");
+    }
+
+    // --- walk_tree ---
+
+    #[test]
+    fn walk_tree_renders_connectors_and_prefixes() {
+        let map: BTreeMap<i32, Proc> = vec![
+            proc(1, 0, "init"),
+            proc(2, 1, "first"),
+            proc(3, 1, "last"),
+            proc(4, 2, "leaf"),
+        ]
+        .into_iter()
+        .map(|p| (p.pid, p))
+        .collect();
+        let children = build_children(&map);
+        let mut seen = HashSet::new();
+        let mut out = Vec::new();
+        walk_tree(1, 0, "", true, &map, &children, &mut seen, &mut out);
+        let displays: Vec<String> = out.into_iter().map(|(_, d)| d).collect();
+        assert_eq!(
+            displays,
+            vec!["init", "├── first", "│   └── leaf", "└── last"]
+        );
+    }
+
+    // --- rebuild_visible (normal filtering) ---
+
+    #[test]
+    fn filter_shows_matches_with_ancestors_as_context() {
+        let mut app = make_app(
+            vec![proc(1, 0, "init"), proc(2, 1, "py_hog"), proc(3, 1, "bash")],
+            &[3],
+        );
+        app.input = "py_hog".into();
+        app.rebuild_visible();
+        let rows: Vec<(i32, bool, bool)> = app
+            .visible
+            .iter()
+            .map(|r| (r.pid, r.killable, r.protected))
+            .collect();
+        // init is shown as context (its subtree matches) but is not itself
+        // selectable; bash doesn't match anywhere in its subtree so it's hidden
+        assert_eq!(rows, vec![(1, false, false), (2, true, false)]);
+        // cursor falls to the first killable row (the match)
+        assert_eq!(app.cursor, 1);
+        assert_eq!(app.cursor_pid, 2);
+    }
+
+    #[test]
+    fn filter_matches_basenames_only_not_paths_or_args() {
+        let mut p = proc(5, 1, "node");
+        p.own = "5 node".into();
+        p.search = "5 node".into();
+        let mut map: BTreeMap<i32, Proc> = BTreeMap::new();
+        map.insert(5, p);
+        map.insert(1, proc(1, 0, "init"));
+        let children = build_children(&map);
+        let mut app = App {
+            procs: map,
+            children,
+            full_rows: vec![(1, "init".into()), (5, "node".into())],
+            visible: Vec::new(),
+            protected: HashSet::new(),
+            last_sample: HashMap::new(),
+            selection_view: false,
+            input: "/Users/whoami".into(),
+            cursor: 0,
+            cursor_pid: 0,
+            selected: HashSet::new(),
+            message: String::new(),
+            mode: Mode::Normal,
+        };
+        app.rebuild_visible();
+        assert!(app.visible.is_empty());
+    }
+
+    // --- move_cursor ---
+
+    #[test]
+    fn move_cursor_clamps_to_bounds() {
+        let mut app = make_app(vec![proc(1, 0, "init"), proc(2, 1, "py_hog")], &[]);
+        app.rebuild_visible();
+        app.move_cursor(15);
+        assert_eq!(app.cursor, app.visible.len() - 1);
+        app.move_cursor(-42);
+        assert_eq!(app.cursor, 0);
+    }
+
+    // --- toggle_select ---
+
+    #[test]
+    fn protected_rows_are_never_selectable() {
+        let mut app = make_app(
+            vec![proc(1, 0, "init"), proc(2, 1, "shell"), proc(3, 1, "hog")],
+            &[2],
+        );
+        app.rebuild_visible();
+        app.cursor = 1;
+        app.cursor_pid = 2;
+        app.toggle_select();
+        assert!(app.selected.is_empty());
+        assert_eq!(app.message, "part of your own session — can't kill");
+        app.cursor = 2;
+        app.cursor_pid = 3;
+        app.toggle_select();
+        assert!(app.selected.contains(&3));
+    }
+
+    // --- selection view ---
+
+    #[test]
+    fn selection_view_lists_selected_and_ancestors() {
+        let mut app = make_app(vec![proc(1, 0, "init"), proc(2, 1, "hog")], &[]);
+        app.selected.insert(2);
+        app.selection_view = true;
+        app.rebuild_visible();
+        let pids: Vec<i32> = app.visible.iter().map(|r| r.pid).collect();
+        assert_eq!(pids, vec![1, 2]);
+        // in selection view the pulled-in ancestors are themselves killable
+        assert!(app.visible.iter().all(|r| r.killable));
+    }
+
+    #[test]
+    fn selection_view_exits_when_selection_empties() {
+        let mut app = make_app(vec![proc(1, 0, "init")], &[]);
+        app.selection_view = true;
+        app.rebuild_visible();
+        assert!(!app.selection_view);
+        assert_eq!(app.message, "selection cleared");
+    }
+
+    // --- kill_targets ---
+
+    #[test]
+    fn kill_targets_skip_protected_selection_and_fall_back_to_cursor() {
+        let mut app = make_app(
+            vec![proc(1, 0, "init"), proc(2, 1, "shell"), proc(3, 1, "hog")],
+            &[2],
+        );
+        app.rebuild_visible();
+        app.selected.insert(2);
+        app.cursor = 2;
+        app.cursor_pid = 3;
+        assert_eq!(app.kill_targets(), vec![3]);
+
+        app.selected.clear();
+        app.selected.insert(3);
+        assert_eq!(app.kill_targets(), vec![3]);
+    }
+
+    // --- terms ---
+
+    #[test]
+    fn terms_split_on_whitespace() {
+        let mut app = make_app(vec![proc(1, 0, "init")], &[]);
+        app.input = "  node   renderer ".into();
+        assert_eq!(app.terms(), vec!["node", "renderer"]);
+        app.input.clear();
+        assert!(app.terms().is_empty());
+    }
 }
