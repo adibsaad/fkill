@@ -3,6 +3,14 @@ name = "fkill"
 version = "0.1.1"
 edition = "2021"
 license = "MIT"
+description = "Interactive TUI process killer — browse a live process tree, filter it, and kill what you meant to kill"
+authors = ["Adib Saad <adib.saad@gmail.com>"]
+repository = "https://github.com/adibsaad/fkill"
+homepage = "https://github.com/adibsaad/fkill"
+readme = "README.md"
+keywords = ["process", "kill", "tui", "terminal", "cli"]
+categories = ["command-line-utilities"]
+exclude = ["demo.gif", "demo.cast", "demo.tape", ".github"]
 
 [dependencies]
 crossterm = "0.28"
