@@ -39,7 +39,7 @@ never re-sorted — so what you're looking at stays where it is.
 macOS (Homebrew, prebuilt for Apple silicon and Intel):
 
 ```sh
-brew install adibsaad/fkill/fkill
+brew install adibsaad/tap/fkill
 ```
 
 Any platform, from source (requires the Rust toolchain — [rustup](https://rustup.rs)):
