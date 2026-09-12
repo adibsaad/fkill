@@ -36,7 +36,13 @@ never re-sorted — so what you're looking at stays where it is.
 
 ## Install
 
-Requires the Rust toolchain ([rustup](https://rustup.rs)) — works on macOS and Linux.
+macOS (Homebrew, prebuilt for Apple silicon and Intel):
+
+```sh
+brew install adibsaad/fkill/fkill
+```
+
+Any platform, from source (requires the Rust toolchain — [rustup](https://rustup.rs)):
 
 ```sh
 cargo install --git https://github.com/adibsaad/fkill
